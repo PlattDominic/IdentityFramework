@@ -11,7 +11,7 @@ namespace ShoeStoreWebAPI.Data
         {
         }
 
-        public DbSet<ShoeModel> shoes { get; set; }
+        public DbSet<ShoeModel> Shoes { get; set; }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {

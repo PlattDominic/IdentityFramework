@@ -13,8 +13,8 @@ ConfigurationManager configuration = builder.Configuration;
 
 //builder.Services.AddDbContext<ShoeStoreDbContext>(options
 //    => options.UseSqlServer(configuration.GetConnectionString("ShoeStoreDbConnectionString")));
-builder.Services.AddDbContext<ShoeStoreDbContext>(options
-    => options.UseInMemoryDatabase("ShoeStoreDb"));
+builder.Services.AddDbContext<ShoeStoreDbContext>(options => 
+    options.UseSqlServer(configuration.GetConnectionString("ShoeStoreDbConnectionString")));
 
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
     .AddEntityFrameworkStores<ShoeStoreDbContext>()

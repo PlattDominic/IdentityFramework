@@ -47,7 +47,7 @@ namespace ShoeStoreWebAPI.Controllers
                 authClaims.Add(new Claim(ClaimTypes.Role, userRole));
 
             var token = GetToken(authClaims);
-
+           
             return Ok(new
             {
                 token = new JwtSecurityTokenHandler().WriteToken(token),
@@ -62,14 +62,7 @@ namespace ShoeStoreWebAPI.Controllers
             return await Register(registerModel);
         }
 
-        [HttpPost]
-        [Route("register-admin")]
-        public async Task<IActionResult> RegisterAdmin([FromBody] RegisterModel registerModel)
-        {
-              return await Register(registerModel, true);
-        }
-
-        private async Task<IActionResult> Register(RegisterModel registerModel, bool isAdmin=false)
+        private async Task<IActionResult> Register(RegisterModel registerModel)
         {
             if (await _userManager.FindByEmailAsync(registerModel?.Email) != null
                 || await _userManager.FindByNameAsync(registerModel?.UserName) != null)
@@ -93,11 +86,15 @@ namespace ShoeStoreWebAPI.Controllers
                 await _roleManager.CreateAsync(new IdentityRole(UserRoles.Admin));
             if (!await _roleManager.RoleExistsAsync(UserRoles.User))
                 await _roleManager.CreateAsync(new IdentityRole(UserRoles.User));
+            if (!await _roleManager.RoleExistsAsync(UserRoles.Seller))
+                await _roleManager.CreateAsync(new IdentityRole(UserRoles.Seller));
+            
+            await _userManager.AddToRoleAsync(user, UserRoles.User);
 
-            if (await _roleManager.RoleExistsAsync(UserRoles.Admin) && isAdmin)
-                await _userManager.AddToRoleAsync(user, UserRoles.Admin);
-            if (await _roleManager.RoleExistsAsync(UserRoles.User))
-                await _userManager.AddToRoleAsync(user, UserRoles.User);
+            if (registerModel.Roles != null)
+                await _userManager.AddToRolesAsync(user, registerModel.Roles);
+
+            
 
             return Ok(new Response { Status = "Success", Message = "User created successfully" });
         }
