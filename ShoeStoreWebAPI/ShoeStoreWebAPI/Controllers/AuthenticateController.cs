@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
@@ -6,6 +7,7 @@ using ShoeStoreWebAPI.Data;
 using ShoeStoreWebAPI.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ShoeStoreWebAPI.Controllers
@@ -47,11 +49,20 @@ namespace ShoeStoreWebAPI.Controllers
                 authClaims.Add(new Claim(ClaimTypes.Role, userRole));
 
             var token = GetToken(authClaims);
+            var refreshToken = GenerateRefreshToken();
+
+            _ = int.TryParse(_configuration["Jwt:RefreshTokenValidityInDays"], out int refreshTokenValidityInDays);
+
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpirationDate = DateTime.Now.AddDays(refreshTokenValidityInDays);
+
+            await _userManager.UpdateAsync(user);
            
             return Ok(new
             {
-                token = new JwtSecurityTokenHandler().WriteToken(token),
-                expiration = token.ValidTo
+                Token = new JwtSecurityTokenHandler().WriteToken(token),
+                RefreshToken = refreshToken,
+                Expiration = token.ValidTo
             });
         }
 
@@ -99,18 +110,111 @@ namespace ShoeStoreWebAPI.Controllers
             return Ok(new Response { Status = "Success", Message = "User created successfully" });
         }
 
+
+        [HttpPost]
+        [Route("refresh-token")]
+        public async Task<IActionResult> RefreshToken(TokenModel tokenModel)
+        {
+            if (tokenModel == null)
+                return BadRequest("Invalid client request");
+
+            string? accessToken = tokenModel.AccessToken;
+            string? refreshToken = tokenModel.RefreshToken;
+
+            var principal = GetPrincipalFromExpiredToken(accessToken);
+            if (principal == null)
+                return BadRequest("Invalid access token or refresh token");
+
+            string username = principal.Identity.Name;
+            var user = await _userManager.FindByNameAsync(username);
+
+            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpirationDate <= DateTime.Now)
+                return BadRequest("Invalid access token or refresh token");
+
+            var newAccessToken = GetToken(principal.Claims.ToList());
+            var newRefreshToken = GenerateRefreshToken();
+
+            user.RefreshToken = newRefreshToken;
+            await _userManager.UpdateAsync(user);
+
+            return new ObjectResult(new
+            {
+                accessToken = new JwtSecurityTokenHandler().WriteToken(newAccessToken),
+                refreshToken = newRefreshToken
+            });
+        }
+
+        [Authorize(Roles = UserRoles.Admin)]
+        [HttpPost]
+        [Route("revoke/{username}")]
+        public async Task<IActionResult> Revoke(string username)
+        {
+            var user = await _userManager.FindByNameAsync(username);
+            if (user == null) return BadRequest("Invalid username");
+
+            user.RefreshToken = null;
+            await _userManager.UpdateAsync(user);
+            
+            return NoContent();
+        }
+
+        [Authorize(Roles = UserRoles.Admin)]
+        [HttpPost]
+        [Route("revoke-all")]
+        public async Task<IActionResult> RevokeAll()
+        {
+            var users = _userManager.Users.ToList();
+            foreach (var user in users)
+            {
+                user.RefreshToken = null;
+                await _userManager.UpdateAsync(user);
+            }
+
+            return NoContent();
+        }
+
+
         private JwtSecurityToken GetToken(List<Claim> authClaims) 
         {
             var authSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]));
+            _ = int.TryParse(_configuration["Jwt:TokenValidityInMinutes"], out int tokenValidationInMinutes);
+
 
             var token = new JwtSecurityToken(
                 issuer: _configuration["Jwt:ValidIssuer"],
                 audience: _configuration["Jwt:ValidAudience"],
-                expires: DateTime.UtcNow.AddMinutes(15),
+                expires: DateTime.UtcNow.AddMinutes(tokenValidationInMinutes),
                 claims: authClaims,
                 signingCredentials: new SigningCredentials(authSigningKey, SecurityAlgorithms.HmacSha256));
 
             return token;
+        }
+
+        private static string GenerateRefreshToken()
+        {
+            var randomNumber = new byte[64];
+            using var rng = RandomNumberGenerator.Create();
+            rng.GetBytes(randomNumber);
+            return Convert.ToBase64String(randomNumber);
+        }
+
+        private ClaimsPrincipal? GetPrincipalFromExpiredToken(string? token)
+        {
+            var tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateAudience = false,
+                ValidateIssuer = false,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"])),
+                ValidateLifetime = false
+            };
+
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out SecurityToken securityToken);
+            if (securityToken is not JwtSecurityToken jwtSecurityToken || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+                throw new SecurityTokenException("Invalid Token");
+
+            return principal;
         }
     }
 }

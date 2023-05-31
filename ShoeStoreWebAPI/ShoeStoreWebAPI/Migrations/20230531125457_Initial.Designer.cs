@@ -12,7 +12,7 @@ using ShoeStoreWebAPI.Data;
 namespace ShoeStoreWebAPI.Migrations
 {
     [DbContext(typeof(ShoeStoreDbContext))]
-    [Migration("20230530143244_Initial")]
+    [Migration("20230531125457_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -205,6 +205,12 @@ namespace ShoeStoreWebAPI.Migrations
 
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("bit");
+
+                    b.Property<string>("RefreshToken")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("RefreshTokenExpirationDate")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("nvarchar(max)");
